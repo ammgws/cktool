@@ -60,12 +60,12 @@ def main(username, password, date, club_id):
     }
     s.post(url, data=login_data)
 
-    event_url = "http://clubkatsudo.com/myclub_scheduleref.aspx?code={0}&ymd={1}&no=1&group=".format(club_id, date)
+    event_url = f"http://clubkatsudo.com/myclub_scheduleref.aspx?code={club_id}&ymd={date}&no=1&group="
     r = s.get(event_url)
     soup = BeautifulSoup(r.content.decode('shift_jisx0213', 'ignore'), "html.parser")
 
     if not soup.find('span', id="lblShukketsu").contents:
-        raise SystemExit("No events for {0}".format(date))
+        raise SystemExit(f"No events for {date}")
 
     print("Raw numbers from clubkatsudo.com:")
     print("出席: " + soup.find('span', attrs={'style': 'font-weight:bold;color:#000099'}).string)
@@ -89,7 +89,7 @@ def main(username, password, date, club_id):
 
         details[player_name] = shukketsu
 
-    form_url = "http://clubkatsudo.com/myclub_scheduleref.aspx?code={0}&ymd={1}&no=1&from=top".format(club_id, date)
+    form_url = f"http://clubkatsudo.com/myclub_scheduleref.aspx?code={club_id}&ymd={date}&no=1&from=top"
     form_data = {
         "__VIEWSTATE": soup.find(id="__VIEWSTATE")['value'],
         "__EVENTVALIDATION": soup.find(id="__EVENTVALIDATION")['value'],
