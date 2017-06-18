@@ -1,7 +1,7 @@
 import datetime as dt
-from operator import itemgetter
 import os.path
 import re
+from operator import itemgetter
 from sys import path
 
 import click
