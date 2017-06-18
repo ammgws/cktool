@@ -43,9 +43,7 @@ def main(username, password, date, club_id):
 
     # Get yes/no list - note that the unanswered list has to be gotten separately
     url = "http://clubkatsudo.com/index.aspx"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko"}
     s = requests.Session()
     s.headers.update(headers)
     r = s.get(url)
