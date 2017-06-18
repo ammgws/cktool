@@ -19,6 +19,10 @@ def validate_date(ctx, param, date):
     return date.strftime("%Y/%m/%d")
 
 
+def bs4_japanese(request_obj):
+    return BeautifulSoup(request_obj.content.decode('shift_jisx0213', 'ignore'), "html.parser")
+
+
 @click.command()
 @click.argument('username')
 @click.option('--club', '-c', 'club_id', prompt='Enter club ID', type=int)
@@ -41,13 +45,15 @@ def main(username, password, date, club_id):
                 player_list[line.split(',')[0]] = [line.split(',')[1], line.split(',')[2]]
     print(f"No. players in text file: {len(player_list)}")
 
-    # Get yes/no list - note that the unanswered list has to be gotten separately
-    url = "http://clubkatsudo.com/index.aspx"
+    tld = "http://clubkatsudo.com"
+
+    # Login to website
+    url = f"{tld}/index.aspx"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko"}
     s = requests.Session()
     s.headers.update(headers)
     r = s.get(url)
-    soup = BeautifulSoup(r.content.decode('shift_jisx0213', 'ignore'), "html.parser")
+    soup = bs4_japanese(r)
 
     login_data = {
         "__VIEWSTATE": soup.find(id="__VIEWSTATE")['value'],
@@ -59,9 +65,11 @@ def main(username, password, date, club_id):
     }
     s.post(url, data=login_data)
 
-    event_url = f"http://clubkatsudo.com/myclub_scheduleref.aspx?code={club_id}&ymd={date}&no=1&group="
+    # Get yes/no list - note that the unanswered list has to be gotten separately
+    # TODO: Handle multiple events on the same day (&no=1 in the URL)
+    event_url = f"{tld}/myclub_scheduleref.aspx?code={club_id}&ymd={date}&no=1&group="
     r = s.get(event_url)
-    soup = BeautifulSoup(r.content.decode('shift_jisx0213', 'ignore'), "html.parser")
+    soup = bs4_japanese(r)
 
     if not soup.find('span', id="lblShukketsu").contents:
         raise SystemExit(f"No events for {date}")
@@ -76,7 +84,7 @@ def main(username, password, date, club_id):
     for row in table.find_all('tr'):
         cells = row.find_all('td')
 
-        player_name = cells[1].get_text(strip=True)
+        player_name = cells[1].get_text(strip=True)  # strip here only removes ASCII whitespace
         player_name = re.sub(r"\s+", "", player_name)  # remove Unicode whitespace characters as well
 
         if 'batsu' in cells[0].img['src']:
@@ -88,7 +96,8 @@ def main(username, password, date, club_id):
 
         details[player_name] = shukketsu
 
-    form_url = f"http://clubkatsudo.com/myclub_scheduleref.aspx?code={club_id}&ymd={date}&no=1&from=top"
+    # Get unanswered list - this is hidden behind JS in browser hence need to get separately
+    form_url = f"{tld}/myclub_scheduleref.aspx?code={club_id}&ymd={date}&no=1&from=top"
     form_data = {
         "__VIEWSTATE": soup.find(id="__VIEWSTATE")['value'],
         "__EVENTVALIDATION": soup.find(id="__EVENTVALIDATION")['value'],
@@ -98,7 +107,6 @@ def main(username, password, date, club_id):
     r = s.post(form_url, data=form_data)
     soup = BeautifulSoup(r.content.decode('shift_jisx0213', 'ignore'), "html.parser")
 
-    # Get unanswered list - this is hidden behind JS in browser hence need to get separately
     table = soup.find('table', id="gvDetail_Mikaitou")
     print("　未: {0}人".format(len(table.find_all('tr'))))
     for row in table.find_all('tr'):
