@@ -37,7 +37,8 @@ def main(username, password, date, club_id):
     if os.path.isfile(player_list_path):
         with open(player_list_path, 'r') as file:
             for line in file:
-                player_list[line.strip().split(',')[0]] = [line.strip().split(',')[1], line.strip().split(',')[2]]
+                line = line.strip()
+                player_list[line.split(',')[0]] = [line.split(',')[1], line.split(',')[2]]
     print(f"No. players in text file: {len(player_list)}")
 
     # Get yes/no list - note that the unanswered list has to be gotten separately
