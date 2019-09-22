@@ -49,9 +49,10 @@ def line_notify(channel_secret, channel_access_token, chat_id, message, image_ur
     else:
         click.echo(f"Error sending message: {r.content} [{r.status_code}]")
 
-def imgur_upload(client_id, client_secret, image_path, token_file):
+def imgur_upload(client_id, client_secret, image_path, cache_dir):
     s = requests.Session()
 
+    token_file = os.path.join(cache_dir, 'imgur_refresh_token')
     if not os.path.isfile(token_file):
         # If no refresh token exists then need user intervention to get first access token
         click.echo(f"https://api.imgur.com/oauth2/authorize?client_id={client_id}&response_type=token&state=")
@@ -104,7 +105,7 @@ class Player:
     attendance: str = 'no'
 
 
-def create_formation_image(names_list, GK_name=None):
+def create_formation_image(names_list, cache_dir, GK_name=None):
     ''' Create soccer formation image using names of attending players. '''
     with open("formation.svg") as f:
         svg_data = f.read()
@@ -123,8 +124,9 @@ def create_formation_image(names_list, GK_name=None):
     svgRenderer = SvgRenderer(path="")
     drawing = svgRenderer.render(svg_root)
     filename = 'formation_{}.png'.format(dt.datetime.now().strftime('%Y%m%d_%Hh%Mm%Ss'))
-    renderPM.drawToFile(drawing, filename, fmt="PNG")
-    return filename
+    filepath = os.path.join(cache_dir, filename)
+    renderPM.drawToFile(drawing, filepath, fmt="PNG")
+    return filepath
 
 
 def parse_name(raw_name_str):
@@ -234,8 +236,6 @@ def main(set_password, date, dryrun, config_dir, cache_dir):
     else:
         password =  str(base64.b64decode(config['Main']['password_b64']), "utf-8")
 
-    imgur_token_file = os.path.join(cache_dir, 'imgur_refresh_token')
-
     # Load list of players from text file. This is needed for two reasons.
     # 1. To give proper display names for each player scraped from the site
     # 2. To give status for each player - 0 = former member, 1 = registered & playing, etc.
@@ -309,8 +309,8 @@ def main(set_password, date, dryrun, config_dir, cache_dir):
 
     attending_list = []
     [attending_list.append(v.actual_name) for k,v in player_list.items() if v.attendance == 'yes']
-    image_file_path = create_formation_image(attending_list, config['Main']['GK_name'])
-    image_url = imgur_upload(config['Imgur']['client_id'], config['Imgur']['client_secret'], image_file_path, imgur_token_file)
+    image_file_path = create_formation_image(attending_list, cache_dir, config['Main']['GK_name'])
+    image_url = imgur_upload(config['Imgur']['client_id'], config['Imgur']['client_secret'], image_file_path, cache_dir)
     # The reason for encoding when printing is because of the emojis being used:
     # UnicodeEncodeError: 'utf-8' codec can't encode characters in position xx: surrogates not allowed
     print(message.encode('utf-16', 'surrogatepass').decode('utf-16'))
