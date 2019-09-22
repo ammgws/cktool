@@ -305,7 +305,15 @@ def main(set_password, date, dryrun, config_dir, cache_dir):
     place = r.find('#lblBasho', first=True).text
     desc = r.find('#lblBiko', first=True).text
 
-    message = f"\u26BD{title}\u26BD\n【出欠】\u2B55{shusseki}人 \u274C{kesseki}人\n【日付】{date}\n【場所】{place}\n【詳細】{desc}\n\n出欠登録: https://clubkatsudo.com/myclub_editpresence.aspx?code={config['Main']['club_id']}\n\n{config['Main']['message_footer']}"
+    message = (
+        f"\u26BD{title}\u26BD\n"
+        f"【出欠】\u2B55{shusseki}人 \u274C{kesseki}人\n"
+        f"【日付】{date}\n"
+        f"【場所】{place}\n"
+        f"【詳細】{desc}\n\n"
+        f"出欠登録: https://clubkatsudo.com/myclub_editpresence.aspx?code={config['Main']['club_id']}\n\n"
+        f"{config['Main']['message_footer']}"
+    )
 
     attending_list = []
     [attending_list.append(v.actual_name) for k,v in player_list.items() if v.attendance == 'yes']
