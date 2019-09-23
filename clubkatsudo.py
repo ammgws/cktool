@@ -520,6 +520,7 @@ def create_event(ctx, date, start_hour, start_min, end_hour, end_min, title, pla
             f"Message: {message}\n"
         )
     )
+    # TODO: allow edit of each parameter
     while not create_ok:
         if click.confirm('Edit before creating?'):
             print(meow)
