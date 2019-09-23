@@ -620,8 +620,25 @@ def list_events(ctx):
     click.echo(f"Found {len(events)} events")
     for event in events:
         day = event.find(".cs_Agenda_Day span", first=True).text
+        fields = event.find(".cs_Agenda_Main div span")
+        for field in fields:
+            if field.find('.fa.fa-clock-o.sp', first=True):
+                time = field.text
+            elif field.find('.fa.fa-map-marker.sp', first=True):
+                place = field.text
+            elif field.find('img', first=True):
+                matches = re.findall(r"(\d+)人[^\d]+(\d+)人", field.text)
+                attendance = f"●{matches[0][0]}人 ✗{matches[0][1]}人"
+            else:
+                desc = field.text
         title = event.find(".cs_Agenda_Main a", first=True).text
-        click.echo(f"Date: {year}/{month}/{day}\n" f"Title: {title}\n")
+        click.echo(
+            f"{year}/{month}/{day} at {time}\n"
+            f"Title: {title}\n"
+            f"Place: {place}\n"
+            f"Attendance: {attendance}\n"
+            f"Desc: {desc or '-'}\n"
+        )
 
 
 if __name__ == "__main__":
