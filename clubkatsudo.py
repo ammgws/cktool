@@ -163,6 +163,22 @@ def new_config_file(config_file_path):
     toml.dump(default_config, open(config_file_path, mode='w'))
 
 
+def login(username, password):
+    # Login to website and return response and session object.
+    s = HTMLSession()
+    r = s.get('https://clubkatsudo.com')
+    login_data = {
+        '__VIEWSTATE': r.html.find('#__VIEWSTATE', first=True).attrs['value'],
+        '__EVENTVALIDATION': r.html.find('#__EVENTVALIDATION', first=True).attrs['value'],
+        'txtUserID': username,
+        'txtPassword': password,
+        'btnLogin.x': 42,
+        'btnLogin.y': 8,
+    }
+    r = s.post('https://clubkatsudo.com', data=login_data)
+    # TODO: check if successful?
+    return r, s
+
 def configure_logging(log_dir):
     # Configure root logger. Level 5 = verbose to catch mostly everything.
     logger = logging.getLogger()
@@ -186,20 +202,11 @@ def configure_logging(log_dir):
     logging.getLogger('requests').setLevel(logging.WARNING)
 
 
-@click.command()
+@click.group()
 @click.option(
     '--set-password',
     is_flag=True,
     help='Set password for clubkatsudo.com account. Will be base64 encoded and stored in config file',
-)
-@click.option(
-    '--date',
-    type=click.DateTime(formats=['%Y%m%d']),
-    help='YYYYMMDD of the event to scrape.',
-)
-@click.option(
-    '--dryrun', is_flag=True, default=False,
-    help='Display final message but do not send.'
 )
 @click.option(
     '--config-dir',
@@ -215,7 +222,17 @@ def configure_logging(log_dir):
     callback=create_dir,
     help=f'Path to directory to store logs and such. Defaults to $XDG_CACHE_HOME/{APP_NAME}.',
 )
-def main(set_password, date, dryrun, config_dir, cache_dir):
+@click.option(
+    '--debug/--no-debug',
+    default=False,
+    help='Enables debugging for dev purposes',
+)
+@click.pass_context
+def cli(ctx, set_password, config_dir, cache_dir, debug):
+    # ensure that ctx.obj exists and is a dict (in case `cli()` is called
+    # by means other than the `if` block below
+    ctx.ensure_object(dict)
+
     configure_logging(cache_dir)
     config_file_path = os.path.join(config_dir, 'config.toml')
     logging.debug('Using config file: %s.', config_file_path)
@@ -230,18 +247,51 @@ def main(set_password, date, dryrun, config_dir, cache_dir):
         click.echo("Password entry not found in config. Rerun with `--set-password` to set.")
         return 1
     elif set_password:
-        password = click.prompt(f"Enter password for {config['Main']['username']} at clubkatsudo.com")
+        password = click.prompt(f"Enter password for `{config['Main']['username']}` at clubkatsudo.com")
         config['Main']['password_b64'] = str(base64.b64encode(password.encode("utf-8")), "utf-8")
         toml.dump(config, open(config_file_path, mode='w'))
     else:
         password =  str(base64.b64decode(config['Main']['password_b64']), "utf-8")
+
+    if debug:
+        debug_log_dir = os.path.join(cache_dir, 'debug_log_dir')
+        if not os.path.isdir(debug_log_dir):
+            os.makedirs(debug_log_dir, exist_ok=True)
+    else:
+        debug_log_dir = None
+
+    ctx.obj['config'] = config
+    ctx.obj['password'] = password
+    ctx.obj['config_dir'] = config_dir
+    ctx.obj['cache_dir'] = cache_dir
+    ctx.obj['debug_log_dir'] = debug_log_dir
+
+@cli.command()
+@click.option(
+    '--date',
+    type=click.DateTime(formats=['%Y%m%d']),
+    required=True,
+    prompt=True,
+    help='YYYYMMDD of the event to scrape.',
+)
+@click.option(
+    '--dryrun', is_flag=True, default=False,
+    help='Display final message but do not send.'
+)
+@click.pass_context
+def attendance(ctx, date, dryrun):
+    config = ctx.obj['config']
+    password = ctx.obj['password']
+    config_dir = ctx.obj['config_dir']
+    cache_dir = ctx.obj['cache_dir']
+    debug_log_dir = ctx.obj['debug_log_dir']
+    date = date.strftime("%Y/%m/%d")
 
     # Load list of players from text file. This is needed for two reasons.
     # 1. To give proper display names for each player scraped from the site
     # 2. To give status for each player - 0 = former member, 1 = registered & playing, etc.
     # See README for more info.
     # File format: display name, actual name, status
-    cwd = path[0]
     player_list_path = os.path.join(config_dir, 'registered_players.txt')
     player_list = {}
     if os.path.isfile(player_list_path):
@@ -253,33 +303,29 @@ def main(set_password, date, dryrun, config_dir, cache_dir):
     print(f'No. players in text file: {len(player_list)}')
 
     # Login to website.
-    s = HTMLSession()
-    tld = 'https://clubkatsudo.com'
-    r = s.get(tld)
+    r, s = login(config['Main']['username'], password)
 
-    login_data = {
-        '__VIEWSTATE': r.html.find('#__VIEWSTATE', first=True).attrs['value'],
-        '__EVENTVALIDATION': r.html.find('#__EVENTVALIDATION', first=True).attrs['value'],
-        'txtUserID': config['Main']['username'],
-        'txtPassword': password,
-        'btnLogin.x': 42,
-        'btnLogin.y': 8,
-    }
-    r = s.post(tld, data=login_data)
-
-    #with open("step1_postlogin", "wb") as f:
-    #    f.write(r.content)
+    if debug_log_dir:
+        with open(os.path.join(debug_log_dir, "attendance_step1_postlogin"), "wb") as f:
+            f.write(r.content)
 
     # Get attendance
     # TODO: Handle multiple events on the same day (&no=1 in the URL)
-    event_url = f"{tld}/myclub_scheduleref.aspx?code={config['Main']['club_id']}&ymd={date}&no=1&group="
+    event_url = f"https://clubkatsudo.com/myclub_scheduleref.aspx?code={config['Main']['club_id']}&ymd={date}&no=1&group="
     r = s.get(event_url)
+
+    if debug_log_dir:
+        with open(os.path.join(debug_log_dir, "attendance_step2_geteventdetails"), "wb") as f:
+            f.write(r.content)
 
     # requests is borking the encoding for html.text
     r = HTML(html=r.content.decode('shift-jis'))
     if not r.find('#lblShukketsu'):
         raise SystemExit(f'No events for {date}')
-    shusseki = r.find('#lblShukketsu', first=True).find('[style*="000099"]', first=True).text
+    try:
+        shusseki = r.find('#lblShukketsu', first=True).find('[style*="000099"]', first=True).text
+    except AttributeError:
+        raise SystemExit(f'No events for {date}')
     kesseki = r.find('#lblShukketsu', first=True).find('[style*="cc0000"]', first=True).text
     mitei = r.find('#lblShukketsu', first=True).find('[style*="999999"]', first=True).text
 
@@ -341,5 +387,154 @@ def main(set_password, date, dryrun, config_dir, cache_dir):
             # TODO: check existence of config items
             line_notify(config['LINE']['channel_secret'], config['LINE']['channel_access_token'], config['LINE']['chat_id'], message, image_url)
 
+
+def choice_str_to_int(ctx, param, choice_str):
+    return int(choice_str)
+
+
+@cli.command()
+@click.option(
+    '--date',
+    type=click.DateTime(formats=['%Y%m%d']),
+    required=True,
+    prompt=True,
+    help='YYYYMMDD of the event to create.',
+)
+@click.option(
+    '--start-hour',
+    type=click.Choice([str(n) for n in range(1, 24)]),
+    callback=choice_str_to_int, expose_value=True,
+    required=True,
+    prompt=True,
+    help='Starting hour of the event to create.',
+)
+@click.option(
+    '--start-min',
+    type=click.Choice([str(n) for n in range(0, 60, 5)]),
+    callback=choice_str_to_int, expose_value=True,
+    required=True,
+    prompt=True,
+    help='Starting minute of the event to create.',
+)
+@click.option(
+    '--end-hour',
+    type=click.Choice([str(n) for n in range(1, 24)]),
+    callback=choice_str_to_int, expose_value=True,
+    required=True,
+    prompt=True,
+    help='Ending hour of the event to create.',
+)
+@click.option(
+    '--end-min',
+    type=click.Choice([str(n) for n in range(0, 60, 5)]),
+    callback=choice_str_to_int, expose_value=True,
+    required=True,
+    prompt=True,
+    help='Ending minute of the event to create.',
+)
+@click.option(
+    '--title',
+    required=False,
+)
+@click.option(
+    '--place',
+    required=False,
+)
+@click.option(
+    '--message',
+    required=False,
+)
+@click.pass_context
+def create_event(ctx, date, start_hour, start_min, end_hour, end_min, title, place, message):
+    config = ctx.obj['config']
+    password = ctx.obj['password']
+    config_dir = ctx.obj['config_dir']
+    cache_dir = ctx.obj['cache_dir']
+    debug_log_dir = ctx.obj['debug_log_dir']
+    date = date.strftime("%Y/%m/%d")
+
+    click.pause('Press any key to proceed to event title input screen.')
+    while not title:
+        title = click.edit().rstrip()
+        if not title:
+            click.pause('Title can not be empty! Press any key to try again.')
+
+    click.pause('Press any key to proceed to event description input screen.')
+    while not message:
+        message = click.edit().rstrip()
+        if not message:
+            click.pause('Description can not be empty! Press any key to try again.')
+
+    choice = None
+    if config['Main'].get('places', None):
+        click.echo("Found the following places in config:")
+        click.echo("\n".join([f'{n}: {place}' for n, place in enumerate(config['Main']['places'], 1)]))
+        click.echo(f"or choose {len(config['Main']['places'])+1} to input a new place.")
+        choice = click.prompt(
+            "Please choose which place to use",
+            type=click.IntRange(1, len(config['Main']['places'])+1)
+        )
+        if choice == len(config['Main']['places'])+1:
+            choice = None
+    if choice is None:
+        click.pause('Press any key to proceed to event place input screen.')
+        while not place:
+            place = click.edit().rstrip()
+            if not place:
+                click.pause('Place can not be empty! Press any key to try again.')
+    else:
+        place = config['Main']['places'][choice-1]
+
+    # Login to website.
+    r, s = login(config['Main']['username'], password)
+
+    if debug_log_dir:
+        with open(os.path.join(debug_log_dir, "create-event_step1_postlogin"), "wb") as f:
+            f.write(r.content)
+
+    event_url = f"https://clubkatsudo.com/myclub_editscheduleref.aspx?code={config['Main']['club_id']}&ymd={date}"
+    r = s.get(event_url)
+    payload = {
+        '__EVENTTARGET': "btnEntry",
+        '__EVENTARGUMENT': "",
+        '__VIEWSTATE': r.html.find('#__VIEWSTATE', first=True).attrs['value'],
+        '__EVENTVALIDATION': r.html.find('#__EVENTVALIDATION', first=True).attrs['value'],
+        'ddlJikanFrom': start_hour,
+        'ddlFunFrom': start_min,
+        'ddlJikanTo': end_hour,
+        'ddlFunTo': end_min,
+        "ddlKurikaeshi": 5,
+        "txtNaiyo": title,
+        "txtBasho": place,
+        "ddlGroup": "",
+        "txtBiko": message,
+    }
+
+    create_ok = False
+    click.echo(
+        (
+            f"Title: {title}\n"
+            f"Date: {date}\n"
+            f"Time: {start_hour:02}:{start_min:02} to {end_hour:02}:{end_min:02}\n"
+            f"Place: {place}\n"
+            f"Message: {message}\n"
+        )
+    )
+    while not create_ok:
+        if click.confirm('Edit before creating?'):
+            print(meow)
+        else:
+            create_ok = True
+
+    if click.confirm('Create event?', abort=True):
+        r = s.post(event_url, data=payload)
+        if r.status_code == 200:
+            click.echo("Successfully created event!")
+
+    if debug_log_dir:
+        with open(os.path.join(debug_log_dir, "create-event_step2_postdata"), "wb") as f:
+            f.write(r.content)
+
+
 if __name__ == '__main__':
-    main()
+    cli(obj={})
