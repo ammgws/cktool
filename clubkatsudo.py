@@ -8,6 +8,7 @@ import re
 from lxml import etree
 from dataclasses import dataclass
 from operator import itemgetter
+from pathlib import Path
 from sys import path
 
 import click
@@ -281,6 +282,27 @@ def cli(ctx, set_password, config_dir, cache_dir, debug):
     ctx.obj["debug_log_dir"] = debug_log_dir
 
 
+def cache_message(cache_dir, edited_message, day_and_time, title):
+    filename = str(base64.urlsafe_b64encode(f"{day_and_time}_{title}".encode("utf-8")), "utf-8")
+    message_cache_dir = os.path.join(cache_dir, "messages")
+    if not os.path.isdir(message_cache_dir):
+        os.makedirs(message_cache_dir, exist_ok=True)
+    with open(os.path.join(message_cache_dir, filename), "w") as f:
+        f.write(edited_message)
+
+
+def check_message_cache(cache_dir, day_and_time, title):
+    filename = str(base64.urlsafe_b64encode(f"{day_and_time}_{title}".encode("utf-8")), "utf-8")
+    filepath = os.path.join(cache_dir, "messages", filename)
+    #TODO: convert entire codebase from os.path to pathlib
+    filepath = Path(filepath)
+    if Path.is_file(filepath):
+        with open(filepath, "r") as f:
+            cached_message = f.read()
+    else:
+        cached_message = None
+    return cached_message
+
 @cli.command()
 @click.option(
     "--date",
@@ -295,18 +317,25 @@ def cli(ctx, set_password, config_dir, cache_dir, debug):
     default=False,
     help="Display final message but do not send.",
 )
+@click.option(
+    "--no-cache",
+    is_flag=True,
+    default=False,
+    help="Do not cache sent messages for future reference.",
+)
 @click.pass_context
-def attendance(ctx, date, dryrun):
+def attendance(ctx, date, dryrun, no_cache):
     config = ctx.obj["config"]
     password = ctx.obj["password"]
     config_dir = ctx.obj["config_dir"]
     cache_dir = ctx.obj["cache_dir"]
     debug_log_dir = ctx.obj["debug_log_dir"]
-    date = date.strftime("%Y/%m/%d")
+    date_str = date.strftime("%Y/%m/%d")
 
     # Load list of players from text file. This is needed for two reasons.
     # 1. To give proper display names for each player scraped from the site
-    # 2. To give status for each player - 0 = former member, 1 = registered & playing, etc.
+    # 2. To give status for each player: 0 = former member, 1 = registered & playing, etc.
+    #    Only players with a status of `1` will be counted in the attendance report.
     # See README for more info.
     # File format: display name, actual name, status
     player_list_path = os.path.join(config_dir, "registered_players.txt")
@@ -328,7 +357,7 @@ def attendance(ctx, date, dryrun):
 
     # Get attendance
     # TODO: Handle multiple events on the same day (&no=1 in the URL)
-    event_url = f"https://clubkatsudo.com/myclub_scheduleref.aspx?code={config['Main']['club_id']}&ymd={date}&no=1&group="
+    event_url = f"https://clubkatsudo.com/myclub_scheduleref.aspx?code={config['Main']['club_id']}&ymd={date_str}&no=1&group="
     r = s.get(event_url)
 
     if debug_log_dir:
@@ -340,7 +369,7 @@ def attendance(ctx, date, dryrun):
     # requests is borking the encoding for html.text
     r = HTML(html=r.content.decode("shift-jis"))
     if not r.find("#lblShukketsu"):
-        raise SystemExit(f"No events for {date}")
+        raise SystemExit(f"No events for {date_str}")
     try:
         shusseki = (
             r.find("#lblShukketsu", first=True)
@@ -348,7 +377,7 @@ def attendance(ctx, date, dryrun):
             .text
         )
     except AttributeError:
-        raise SystemExit(f"No events for {date}")
+        raise SystemExit(f"No events for {date_str}")
     kesseki = (
         r.find("#lblShukketsu", first=True).find('[style*="cc0000"]', first=True).text
     )
@@ -370,18 +399,19 @@ def attendance(ctx, date, dryrun):
         try:
             player_list[player_name].attendance = shukketsu
         except KeyError:
+            # cannot find entry in registered players file, so just use website display name
             player_list[player_name] = Player(player_name, player_name, 1)
             player_list[player_name].attendance = shukketsu
 
     title = r.find("#lblNaiyo", first=True).text
-    date = r.find("#lblNittei", first=True).text
+    day_and_time = r.find("#lblNittei", first=True).text
     place = r.find("#lblBasho", first=True).text
     desc = r.find("#lblBiko", first=True).text
 
     message = (
         f"\u26BD{title}\u26BD\n"
         f"【出欠】\u2B55{shusseki}人 \u274C{kesseki}人\n"
-        f"【日付】{date}\n"
+        f"【日付】{day_and_time}\n"
         f"【場所】{place}\n"
         f"【詳細】{desc}\n\n"
         f"出欠登録: https://clubkatsudo.com/myclub_editpresence.aspx?code={config['Main']['club_id']}\n\n"
@@ -406,7 +436,14 @@ def attendance(ctx, date, dryrun):
     # The reason for encoding when printing is because of the emojis being used:
     # UnicodeEncodeError: 'utf-8' codec can't encode characters in position xx: surrogates not allowed
     print(message.encode("utf-16", "surrogatepass").decode("utf-16"))
-    print(image_url)
+    click.echo(image_url)
+
+    cached_message=check_message_cache(cache_dir, day_and_time, title)
+    if cached_message:
+        click.echo("\n--------------------------------------------------------------\n")
+        print(cached_message.encode("utf-16", "surrogatepass").decode("utf-16"))
+        click.echo("Found cached message for this event. Use this message instead?")
+
     message_ok = False
     while not message_ok:
         if click.confirm("Edit before sending?"):
@@ -414,6 +451,8 @@ def attendance(ctx, date, dryrun):
                 text=message.encode("utf-16", "surrogatepass").decode("utf-16")
             )
             if edited_message:
+                if edited_message != message and not no_cache:
+                    cache_message(cache_dir, edited_message, day_and_time, title)
                 message = edited_message
             print(message.encode("utf-16", "surrogatepass").decode("utf-16"))
             if click.confirm("Use this message?"):
@@ -486,9 +525,7 @@ def choice_str_to_int(ctx, param, choice_str):
 @click.option("--place", required=False)
 @click.option("--message", required=False)
 @click.pass_context
-def create_event(
-    ctx, date, start_hour, start_min, end_hour, end_min, title, place, message
-):
+def create_event(    ctx, date, start_hour, start_min, end_hour, end_min, title, place, message):
     config = ctx.obj["config"]
     password = ctx.obj["password"]
     config_dir = ctx.obj["config_dir"]
