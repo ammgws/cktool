@@ -7,6 +7,7 @@ import os.path
 import re
 from lxml import etree
 from dataclasses import dataclass
+from importlib.resources import open_text
 from operator import itemgetter
 from pathlib import Path
 from sys import path
@@ -111,7 +112,7 @@ class Player:
 
 def create_formation_image(names_list, cache_dir, GK_name=None):
     """ Create soccer formation image using names of attending players. """
-    with open("formation.svg") as f:
+    with open_text("cktool", "formation.svg") as f:
         svg_data = f.read()
         svg_data = svg_data.replace("_z_", str(len(names_list)))
         if GK_name and GK_name in names_list:
@@ -654,28 +655,29 @@ def list_events(ctx):
     month = r.find("#lblCurrentMM", first=True).text
 
     events = r.find(".cs_Agenda", first=True).find("tr")
-    click.echo(f"Found {len(events)} events")
+    click.echo(f"Found {len(events)} events for {year}/{month}")
     for event in events:
         day = event.find(".cs_Agenda_Day span", first=True).text
-        fields = event.find(".cs_Agenda_Main div span")
-        for field in fields:
-            if field.find('.fa.fa-clock-o.sp', first=True):
-                time = field.text
-            elif field.find('.fa.fa-map-marker.sp', first=True):
-                place = field.text
-            elif field.find('img', first=True):
-                matches = re.findall(r"(\d+)人[^\d]+(\d+)人", field.text)
-                attendance = f"●{matches[0][0]}人 ✗{matches[0][1]}人"
-            else:
-                desc = field.text
-        title = event.find(".cs_Agenda_Main a", first=True).text
-        click.echo(
-            f"{year}/{month}/{day} at {time}\n"
-            f"Title: {title}\n"
-            f"Place: {place}\n"
-            f"Attendance: {attendance}\n"
-            f"Desc: {desc or '-'}\n"
-        )
+        if int(day) > int(dt.date.today().strftime("%d")):
+            fields = event.find(".cs_Agenda_Main div span")
+            for field in fields:
+                if field.find('.fa.fa-clock-o.sp', first=True):
+                    time = field.text
+                elif field.find('.fa.fa-map-marker.sp', first=True):
+                    place = field.text
+                elif field.find('img', first=True):
+                    matches = re.findall(r"(\d+)人[^\d]+(\d+)人", field.text)
+                    attendance = f"●{matches[0][0]}人 ✗{matches[0][1]}人"
+                else:
+                    desc = field.text
+            title = event.find(".cs_Agenda_Main a", first=True).text
+            click.echo(
+                f"{year}/{month}/{day} at {time}\n"
+                f"Title: {title}\n"
+                f"Place: {place}\n"
+                f"Attendance: {attendance}\n"
+                f"Desc: {desc or '-'}\n"
+            )
 
 
 if __name__ == "__main__":
