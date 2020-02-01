@@ -386,23 +386,25 @@ def attendance(ctx, date, dryrun, no_cache):
         r.find("#lblShukketsu", first=True).find('[style*="999999"]', first=True).text
     )
 
-    rows = r.find("#gvDetail", first=True).find("tr")
-    for row in rows:
-        cells = row.find("td")
-        player_name = parse_name(cells[1].text)
-        attendance_icon = cells[0].find("img", first=True).attrs["src"]
-        if "batsu" in attendance_icon:
-            shukketsu = "no"
-        elif "maru" in attendance_icon:
-            shukketsu = "yes"
-        else:
-            shukketsu = "unknown"
-        try:
-            player_list[player_name].attendance = shukketsu
-        except KeyError:
-            # cannot find entry in registered players file, so just use website display name
-            player_list[player_name] = Player(player_name, player_name, 1)
-            player_list[player_name].attendance = shukketsu
+    if rows := r.find("#gvDetail", first=True).find("tr")
+        for row in rows:
+            cells = row.find("td")
+            player_name = parse_name(cells[1].text)
+            attendance_icon = cells[0].find("img", first=True).attrs["src"]
+            if "batsu" in attendance_icon:
+                shukketsu = "no"
+            elif "maru" in attendance_icon:
+                shukketsu = "yes"
+            else:
+                shukketsu = "unknown"
+            try:
+                player_list[player_name].attendance = shukketsu
+            except KeyError:
+                # cannot find entry in registered players file, so just use website display name
+                player_list[player_name] = Player(player_name, player_name, 1)
+                player_list[player_name].attendance = shukketsu
+    else:
+        raise SystemExit(f"Couldn't find event details. Page layout changed?")
 
     title = r.find("#lblNaiyo", first=True).text
     day_and_time = r.find("#lblNittei", first=True).text
