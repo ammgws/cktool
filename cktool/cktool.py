@@ -387,7 +387,7 @@ def attendance(ctx, date, dryrun, no_cache):
         r.find("#lblShukketsu", first=True).find('[style*="999999"]', first=True).text
     )
 
-    if rows := r.find("#gvDetail", first=True).find("tr")
+    if rows := r.find("#gvDetail", first=True).find("tr"):
         for row in rows:
             cells = row.find("td")
             player_name = parse_name(cells[1].text)
