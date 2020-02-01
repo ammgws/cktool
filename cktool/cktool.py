@@ -209,6 +209,7 @@ def configure_logging(log_dir):
 
 
 @click.group()
+@click.version_option()
 @click.option(
     "--set-password",
     is_flag=True,
